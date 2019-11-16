@@ -1,13 +1,10 @@
-﻿using AspNetCoreIdentity.Areas.Identity.Data;
+﻿using AspNetCoreIdentity.Config;
 using AspNetCoreIdentity.Extensions;
-using Microsoft.AspNetCore.Authorization;
+using KissLog.Apis.v1.Listeners;
+using KissLog.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Identity.UI;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,43 +12,33 @@ namespace AspNetCoreIdentity
 {
     public class Startup
     {
-        public Startup(IConfiguration configuration)
-        {
-            Configuration = configuration;
-        }
-
         public IConfiguration Configuration { get; }
 
-        // This method gets called by the runtime. Use this method to add services to the container.
-        public void ConfigureServices(IServiceCollection services)
+        public Startup(IHostingEnvironment hostingEnvironment)
         {
-            services.Configure<CookiePolicyOptions>(options =>
+            var builder = new ConfigurationBuilder()
+                .SetBasePath(hostingEnvironment.ContentRootPath)
+                .AddJsonFile("appsettings.json", true, true)
+                .AddJsonFile($"sppsettings.{hostingEnvironment.EnvironmentName}.json", true, true)
+                .AddEnvironmentVariables();
+
+            if (hostingEnvironment.IsProduction())
             {
-                // This lambda determines whether user consent for non-essential cookies is needed for a given request.
-                options.CheckConsentNeeded = context => true;
-                options.MinimumSameSitePolicy = SameSiteMode.None;
-            });
+                builder.AddUserSecrets<Startup>();
+            }
 
-            services.AddDbContext<AspNetCoreIdentityContext>(options =>
-                options.UseSqlServer(Configuration.GetConnectionString("AspNetCoreIdentityContextConnection")));
-
-            services.AddDefaultIdentity<IdentityUser>().AddDefaultUI(UIFramework.Bootstrap4)
-                .AddRoles<IdentityRole>()
-                .AddEntityFrameworkStores<AspNetCoreIdentityContext>();
-
-            services.AddAuthorization(options =>
-            {
-                options.AddPolicy("PodeExcluir", policy => policy.RequireClaim("PodeExcluir"));
-                options.AddPolicy("PodeLer", policy => policy.Requirements.Add(new PermissaoNecessaria("PodeLer")));
-                options.AddPolicy("PodeGravar", policy => policy.Requirements.Add(new PermissaoNecessaria("PodeGravar")));
-            });
-
-            services.AddSingleton<IAuthorizationHandler, PermissaoNecessarioHandler>();
-
-            services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+            Configuration = builder.Build();
         }
 
-        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddIdentityConfig(Configuration);
+            services.AddAuthorizationConfig();
+            services.ResolveDependencies();
+
+            services.AddMvc(options => { options.Filters.Add(typeof(AuditoriaFilter)); }).SetCompatibilityVersion(CompatibilityVersion.Version_2_2);
+        }
+
         public void Configure(IApplicationBuilder app, IHostingEnvironment env)
         {
             if (env.IsDevelopment())
@@ -60,10 +47,18 @@ namespace AspNetCoreIdentity
             }
             else
             {
-                app.UseExceptionHandler("/Home/Error");
-                // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+                app.UseExceptionHandler("/erro/500");
+                app.UseStatusCodePagesWithRedirects("/erro/{0}");
                 app.UseHsts();
             }
+
+            app.UseKissLogMiddleware(options =>
+            {
+                options.Listeners.Add(new KissLogApiListener(new KissLog.Apis.v1.Auth.Application(
+                    Configuration["KissLog.OrganizationId"],
+                    Configuration["KissLog.ApplicationId"])
+                ));
+            });
 
             app.UseHttpsRedirection();
             app.UseStaticFiles();
@@ -73,9 +68,7 @@ namespace AspNetCoreIdentity
 
             app.UseMvc(routes =>
             {
-                routes.MapRoute(
-                    name: "default",
-                    template: "{controller=Home}/{action=Index}/{id?}");
+                routes.MapRoute("default", "{controller=Home}/{action=Index}/{id?}");
             });
         }
     }

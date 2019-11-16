@@ -2,16 +2,24 @@
 using AspNetCoreIdentity.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace AspNetCoreIdentity.Controllers
 {
     [Authorize]
     public class HomeController : Controller
     {
+        private readonly ILogger _logger;
+
+        public HomeController(ILogger logger)
+        {
+            _logger = logger;
+        }
+
         [AllowAnonymous]
         public IActionResult Index()
         {
+            _logger.LogTrace("usuario acessou a home");
             return View();
         }
 
@@ -45,9 +53,32 @@ namespace AspNetCoreIdentity.Controllers
         }
 
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
-        public IActionResult Error()
+        public IActionResult Error(int id)
         {
-            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+            var modelErro = new ErrorViewModel();
+            if (id == 500)
+            {
+                modelErro.Message = "Ocorreu um erro interno";
+                modelErro.Titulo = "Ocorreu um erro";
+                modelErro.ErrorCode = id;
+            }
+            else if (id == 404)
+            {
+                modelErro.Message = "A pagina solicitada n foi encontrada.";
+                modelErro.Titulo = "Pagina não encontrada";
+                modelErro.ErrorCode = id;
+            }
+            else if (id == 403)
+            {
+                modelErro.Message = "Você não tem autorização para acessar a pagina.";
+                modelErro.Titulo = "Acesso negado";
+                modelErro.ErrorCode = id;
+            }
+            else
+            {
+                return StatusCode(404);
+            }
+            return View("Error", modelErro);
         }
     }
 }
